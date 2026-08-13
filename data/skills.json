@@ -1,0 +1,229 @@
+{
+    "programming_languages": {
+      "skills": [
+        "python", "java", "javascript", "typescript", "c++", "c#", "c",
+        "go", "rust", "php", "ruby", "kotlin", "swift", "r", "sql",
+        "scala", "matlab", "perl", "dart", "objective-c", "shell scripting",
+        "bash", "powershell", "vba", "assembly", "haskell", "lua", "julia"
+      ],
+      "aliases": {
+        "js": "javascript",
+        "ts": "typescript",
+        "golang": "go",
+        "py": "python",
+        "sh": "shell scripting",
+        "powershell scripting": "powershell",
+        "objective c": "objective-c"
+      }
+    },
+    "web_development": {
+      "skills": [
+        "html", "css", "sass", "less", "react", "angular", "vue.js",
+        "node.js", "django", "flask", "fastapi", "spring boot",
+        "express.js", "next.js", "nuxt.js", "bootstrap", "tailwind css",
+        "rest api", "graphql", "webpack", "jquery", "redux", "svelte",
+        "asp.net", "laravel", "ruby on rails", "wordpress", "web sockets",
+        "progressive web apps", "responsive design"
+      ],
+      "aliases": {
+        "vuejs": "vue.js",
+        "vue": "vue.js",
+        "nodejs": "node.js",
+        "node": "node.js",
+        "reactjs": "react",
+        "react.js": "react",
+        "angularjs": "angular",
+        "nextjs": "next.js",
+        "nuxtjs": "nuxt.js",
+        "expressjs": "express.js",
+        "express": "express.js",
+        "tailwind": "tailwind css",
+        "rails": "ruby on rails",
+        "restful api": "rest api",
+        "restful apis": "rest api",
+        "rest apis": "rest api",
+        "pwa": "progressive web apps",
+        "spring": "spring boot"
+      }
+    },
+    "mobile_development": {
+      "skills": [
+        "android development", "ios development", "react native",
+        "flutter", "xamarin", "swift ui", "jetpack compose",
+        "mobile app development", "ionic"
+      ],
+      "aliases": {
+        "android": "android development",
+        "ios": "ios development",
+        "swiftui": "swift ui"
+      }
+    },
+    "data_science_ml": {
+      "skills": [
+        "machine learning", "deep learning", "natural language processing",
+        "computer vision", "data analysis", "data visualization",
+        "data mining", "data engineering", "big data", "predictive modeling",
+        "statistical analysis", "pandas", "numpy", "scikit-learn",
+        "tensorflow", "pytorch", "keras", "opencv", "nltk", "spacy",
+        "statistics", "time series analysis", "reinforcement learning",
+        "feature engineering", "model deployment", "mlops", "hugging face",
+        "xgboost", "lightgbm", "recommendation systems", "generative ai",
+        "large language models", "prompt engineering"
+      ],
+      "aliases": {
+        "ml": "machine learning",
+        "dl": "deep learning",
+        "nlp": "natural language processing",
+        "cv": "computer vision",
+        "genai": "generative ai",
+        "llm": "large language models",
+        "llms": "large language models",
+        "scikit learn": "scikit-learn",
+        "sklearn": "scikit-learn"
+      }
+    },
+    "databases": {
+      "skills": [
+        "mysql", "postgresql", "mongodb", "sqlite", "oracle database",
+        "redis", "firebase", "cassandra", "dynamodb", "elasticsearch",
+        "microsoft sql server", "neo4j", "database design",
+        "database administration", "data warehousing", "etl"
+      ],
+      "aliases": {
+        "postgres": "postgresql",
+        "mssql": "microsoft sql server",
+        "sql server": "microsoft sql server",
+        "oracle": "oracle database",
+        "es": "elasticsearch"
+      }
+    },
+    "cloud_devops": {
+      "skills": [
+        "aws", "microsoft azure", "google cloud platform", "docker",
+        "kubernetes", "jenkins", "ci/cd", "terraform", "git", "github",
+        "gitlab", "bitbucket", "linux", "ansible", "puppet", "chef",
+        "nginx", "apache", "cloud computing", "serverless architecture",
+        "microservices", "infrastructure as code", "prometheus", "grafana",
+        "openshift", "cloudformation", "aws lambda", "load balancing"
+      ],
+      "aliases": {
+        "azure": "microsoft azure",
+        "gcp": "google cloud platform",
+        "k8s": "kubernetes",
+        "continuous integration": "ci/cd",
+        "continuous deployment": "ci/cd",
+        "iac": "infrastructure as code",
+        "microservices architecture": "microservices"
+      }
+    },
+    "testing_qa": {
+      "skills": [
+        "unit testing", "integration testing", "selenium", "junit",
+        "pytest", "test automation", "manual testing", "quality assurance",
+        "cypress", "postman", "jira", "test driven development",
+        "behavior driven development", "load testing", "regression testing",
+        "api testing", "mocha", "jest"
+      ],
+      "aliases": {
+        "qa": "quality assurance",
+        "tdd": "test driven development",
+        "bdd": "behavior driven development"
+      }
+    },
+    "design_tools": {
+      "skills": [
+        "figma", "adobe photoshop", "adobe illustrator", "adobe xd",
+        "sketch", "canva", "ui design", "ux design", "wireframing",
+        "prototyping", "user research", "graphic design",
+        "adobe premiere pro", "adobe after effects", "invision"
+      ],
+      "aliases": {
+        "ui/ux": "ui design",
+        "ui ux design": "ui design",
+        "photoshop": "adobe photoshop",
+        "illustrator": "adobe illustrator",
+        "premiere pro": "adobe premiere pro",
+        "after effects": "adobe after effects"
+      }
+    },
+    "project_management": {
+      "skills": [
+        "project management", "agile methodology", "scrum", "kanban",
+        "waterfall methodology", "risk management", "stakeholder management",
+        "sprint planning", "product management", "resource planning",
+        "budgeting", "gantt charts", "trello", "asana", "microsoft project"
+      ],
+      "aliases": {
+        "agile": "agile methodology",
+        "waterfall": "waterfall methodology",
+        "pmp": "project management",
+        "ms project": "microsoft project"
+      }
+    },
+    "business_analytics": {
+      "skills": [
+        "business analysis", "power bi", "tableau", "excel",
+        "financial modeling", "market research", "data-driven decision making",
+        "kpi tracking", "google analytics", "sql reporting", "forecasting",
+        "requirements gathering", "process improvement", "six sigma",
+        "supply chain management", "business intelligence"
+      ],
+      "aliases": {
+        "powerbi": "power bi",
+        "ms excel": "excel",
+        "microsoft excel": "excel",
+        "bi": "business intelligence",
+        "ga": "google analytics"
+      }
+    },
+    "cybersecurity": {
+      "skills": [
+        "network security", "penetration testing", "ethical hacking",
+        "vulnerability assessment", "cryptography", "firewall management",
+        "incident response", "security auditing", "siem", "owasp",
+        "identity and access management", "risk assessment", "iso 27001",
+        "cissp", "malware analysis"
+      ],
+      "aliases": {
+        "pen testing": "penetration testing",
+        "iam": "identity and access management"
+      }
+    },
+    "marketing_sales": {
+      "skills": [
+        "digital marketing", "seo", "sem", "content marketing",
+        "social media marketing", "email marketing", "brand management",
+        "salesforce", "crm", "lead generation", "copywriting",
+        "affiliate marketing", "google ads", "facebook ads",
+        "marketing automation", "hubspot"
+      ],
+      "aliases": {
+        "search engine optimization": "seo",
+        "search engine marketing": "sem",
+        "customer relationship management": "crm"
+      }
+    },
+    "soft_skills": {
+      "skills": [
+        "communication", "leadership", "teamwork", "problem solving",
+        "critical thinking", "time management", "adaptability",
+        "collaboration", "creativity", "conflict resolution",
+        "decision making", "emotional intelligence", "negotiation",
+        "presentation skills", "attention to detail", "work ethic",
+        "interpersonal skills", "mentoring", "public speaking",
+        "analytical thinking", "customer service"
+      ],
+      "aliases": {
+        "team work": "teamwork",
+        "problem-solving": "problem solving",
+        "critical-thinking": "critical thinking"
+      }
+    },
+    "languages_spoken": {
+      "skills": [
+        "english", "hindi", "spanish", "french", "german", "mandarin",
+        "japanese", "arabic", "portuguese", "russian"
+      ],
+      "aliases": {}
+    }
+  }

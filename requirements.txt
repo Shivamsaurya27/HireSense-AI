@@ -1,0 +1,55 @@
+streamlit>=1.32.0
+plotly>=5.20.0
+fpdf2>=2.7.9
+
+# ==========================================================================
+# HireSense AI - Intelligent Resume Screening & Candidate Ranking Platform
+# Python dependencies for the ML / processing pipeline (ml/ and utils/).
+#
+# Tested with Python 3.10+.
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# --------------------------------------------------------------------------
+# IMPORTANT - ONE-TIME SETUP AFTER INSTALLING PACKAGES:
+#
+# 1) Download the spaCy English language model (used by text_processor.py
+#    for named entity recognition — organizations, people, dates):
+#
+#       python -m spacy download en_core_web_sm
+#
+#    If this step is skipped, text_processor.py still works — it just
+#    falls back to skipping entity extraction rather than crashing.
+#
+# 2) NLTK corpora (punkt tokenizer, stopwords, wordnet) are downloaded
+#    AUTOMATICALLY the first time text_processor.py runs, if not already
+#    present. This requires an internet connection on first run. To
+#    pre-download manually instead, run:
+#
+#       python -m nltk.downloader punkt punkt_tab stopwords wordnet omw-1.4
+#
+# --------------------------------------------------------------------------
+
+# --- Data handling -----------------------------------------------------
+pandas>=2.0.0
+numpy>=1.24.0
+
+# --- Machine Learning (TF-IDF, cosine similarity) -----------------------
+scikit-learn>=1.3.0
+
+# --- NLP: tokenization, stopwords, lemmatization -------------------------
+nltk>=3.8.1
+
+# --- NLP: named entity recognition ---------------------------------------
+spacy>=3.7.0
+
+# --- Resume file parsing: PDF -----------------------------------------
+pdfplumber>=0.10.0
+PyPDF2>=3.0.0
+
+# --- Resume file parsing: DOCX -----------------------------------------
+python-docx>=1.1.0
+
+# --- PDF report generation -----------------------------------------------
+reportlab>=4.0.0
