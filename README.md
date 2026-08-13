@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Latest-red.svg)
 ![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-ML-orange.svg)
@@ -121,3 +122,7 @@ This project makes use of the following open-source libraries and frameworks:
 - python-docx
 
 
+=======
+# HireSense-AI
+AI-powered Resume Screening and Candidate Ranking Platform using Machine Learning, NLP, TF-IDF, Cosine Similarity, and Streamlit.
+>>>>>>> 5cf394859ba4e1098f754772b71f807d26bc97b8
