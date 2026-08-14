@@ -189,22 +189,35 @@ def render() -> None:
             else len([c for c in candidates if c["status"] == "shortlisted"]) if report_type == "Shortlisted Only"
             else len(candidates)
         )
-        st.markdown(
-            f"""
-            <div class="glass-card">
-                <div style="font-weight:700; color:{COLORS['text_primary']}; font-size:1rem;">{report_type}</div>
-                <div style="font-size:0.82rem; color:{COLORS['text_muted']}; margin-top:0.25rem;">
-                    {pool_size} candidate(s) included
-                </div>
-                <div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem;">
-                    {'<span class="badge badge-primary">Skill Breakdown</span>' if include_skills else ''}
-                    {'<span class="badge badge-primary">Recommendations</span>' if include_recs else ''}
-                    {'<span class="badge badge-accent">Analytics Summary</span>' if include_charts_note else ''}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+
+        # FIX: st.markdown() runs content through a Markdown parser BEFORE
+        # unsafe_allow_html turns it into HTML. Lines indented 4+ spaces
+        # (as the old multi-line f-string was, matching the surrounding
+        # Python code) get treated as a fenced code block by that parser,
+        # which is why the closing </div> leaked out as visible literal
+        # text in the UI. Building the HTML as a single flat string with
+        # no leading whitespace avoids triggering that rule.
+        badges_html = "".join(
+            [
+                '<span class="badge badge-primary">Skill Breakdown</span>' if include_skills else "",
+                '<span class="badge badge-primary">Recommendations</span>' if include_recs else "",
+                '<span class="badge badge-accent">Analytics Summary</span>' if include_charts_note else "",
+            ]
         )
+
+        preview_html = (
+            '<div class="glass-card">'
+            f'<div style="font-weight:700; color:{COLORS["text_primary"]}; font-size:1rem;">{report_type}</div>'
+            f'<div style="font-size:0.82rem; color:{COLORS["text_muted"]}; margin-top:0.25rem;">'
+            f"{pool_size} candidate(s) included"
+            "</div>"
+            '<div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem;">'
+            f"{badges_html}"
+            "</div>"
+            "</div>"
+        )
+
+        st.markdown(preview_html, unsafe_allow_html=True)
 
     render_divider()
 
