@@ -15,6 +15,18 @@ Real integration point (future):
 
 Rendering code below only depends on the dict shape returned by this
 function, so the swap will not require changes elsewhere in this file.
+
+CANDIDATE SOURCE NOTE
+------------------------------------------------------------------------
+Two separate candidate pools exist during UI development:
+  1. The fixed mock "ranked candidates" pool (ui.ranking.get_ranked_candidates()).
+  2. Whatever the user actually uploaded on the Resume Screening page
+     (st.session_state.uploaded_resumes).
+A candidate clicked via "View ->" on the Screening page usually only
+exists in pool #2. This file merges both pools so the picker and the
+detail lookup both recognize an uploaded resume's candidate, instead
+of silently falling back to whichever mock candidate happens to be
+first in pool #1.
 """
 
 from __future__ import annotations
@@ -87,13 +99,60 @@ _EDUCATION_POOL = [
 ]
 
 
+def _status_from_score(score: float) -> str:
+    """Same thresholds used on the Resume Screening results table."""
+    if score >= 80:
+        return "shortlisted"
+    if score >= 50:
+        return "in review"
+    return "rejected"
+
+
+def _uploaded_resume_candidates() -> list[dict]:
+    """
+    Normalize st.session_state.uploaded_resumes (from Resume Screening)
+    into the same shape as get_ranked_candidates(), so a candidate the
+    user actually uploaded can be found and rendered here even if they
+    don't exist in the separate mock ranking pool.
+    """
+    uploaded = st.session_state.get("uploaded_resumes", [])
+    normalized = []
+    for r in uploaded:
+        score = r["score"]
+        normalized.append(
+            {
+                "name": r["candidate_name"],
+                "role": "Not specified",
+                "experience": "Not specified",
+                "score": score,
+                "status": _status_from_score(score),
+                "matched_skills": r["matched_skills"],
+                "skills_match": score,
+                "recommendation": _recommendation_for_score(score),
+            }
+        )
+    return normalized
+
+
+def _all_known_candidates() -> list[dict]:
+    """
+    Merge the mock ranking pool with whatever the user has actually
+    uploaded. Uploaded resumes take precedence on name collisions.
+    """
+    merged: dict[str, dict] = {c["name"]: c for c in get_ranked_candidates()}
+    for c in _uploaded_resume_candidates():
+        merged[c["name"]] = c
+    return list(merged.values())
+
+
 def get_candidate_detail(name: str) -> dict | None:
     """
     Build a full mock profile for the given candidate name, layered on
-    top of the ranking summary so score/status/role stay consistent
-    with the Candidate Ranking page.
+    top of the ranking summary (or an uploaded resume, if that's where
+    the candidate actually came from) so score/status/role stay
+    consistent with wherever the candidate was selected from.
     """
-    base = next((c for c in get_ranked_candidates() if c["name"] == name), None)
+    base = next((c for c in _all_known_candidates() if c["name"] == name), None)
     if base is None:
         return None
 
@@ -120,7 +179,7 @@ def get_candidate_detail(name: str) -> dict | None:
 def render() -> None:
     selected_name = st.session_state.get("selected_candidate")
 
-    all_candidates = get_ranked_candidates()
+    all_candidates = _all_known_candidates()
 
     # ------------------------------------------------------------
     # CANDIDATE PICKER (works even if navigated here without a selection)
