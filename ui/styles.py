@@ -378,16 +378,29 @@ def apply_custom_css() -> None:
         }}
 
         /* ============================================================
-           PROGRESS BAR
+           CUSTOM PROGRESS BAR (replaces st.progress entirely)
+           ------------------------------------------------------------
+           st.progress()'s internal DOM structure isn't stable across
+           Streamlit versions/deployments, which made CSS selectors
+           targeting [data-testid="stProgress"] unreliable — the fill
+           kept rendering at 100% regardless of the actual value. This
+           bar is rendered directly as HTML by render_progress_with_label()
+           in ui/components.py, with the width set inline in Python, so
+           there's no DOM-guessing involved.
         ============================================================ */
-        [data-testid="stProgress"] > div > div {{
-            background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['accent']} 100%);
+        .hs-progress-track {{
+            width: 100%;
+            height: 8px;
+            background: {COLORS['border']};
             border-radius: 8px;
+            overflow: hidden;
         }}
 
-        [data-testid="stProgress"] {{
-            background: {COLORS['card']};
+        .hs-progress-fill {{
+            height: 100%;
+            background: linear-gradient(90deg, {COLORS['primary']} 0%, {COLORS['accent']} 100%);
             border-radius: 8px;
+            transition: width 0.4s ease;
         }}
 
         /* ============================================================
@@ -543,4 +556,3 @@ def apply_custom_css() -> None:
         """,
         unsafe_allow_html=True,
     )
-    
