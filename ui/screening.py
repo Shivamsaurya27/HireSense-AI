@@ -6,29 +6,47 @@ Two page renderers live in this file:
     render()                  -> Resume Screening (multi-file upload)
     render_job_description()  -> Job Description input & extracted fields
 
-MOCK DATA / MOCK PROCESSING NOTICE
+REAL PIPELINE INTEGRATION
 ------------------------------------------------------------------------
-`_mock_process_resume()` and `_mock_extract_jd_fields()` are placeholder
-stand-ins for the real ML pipeline. They exist ONLY so the UI has
-something to render during development. Real integration points:
+This file wires the real ML pipeline instead of the previous mock data:
 
-    ml.resume_parser.parse_resume(file)          -> candidate name, raw text
-    ml.text_processor.clean_text(raw_text)        -> normalized text
-    ml.skill_extractor.extract_skills(text)        -> matched skills
-    ml.ats_scorer.score_candidate(resume, jd)      -> compatibility score
-    ml.skill_extractor.extract_jd_requirements(jd) -> required skills / keywords /
-                                                        experience / education
+    ml.resume_parser.ResumeParser      -> extract raw text from PDF/DOCX/TXT
+    ml.text_processor.TextProcessor    -> clean text, detect resume sections
+                                            (education, skills, projects,
+                                            certifications, experience, etc.)
+    ml.skill_extractor.SkillExtractor  -> taxonomy-based skill extraction,
+                                            matched/missing skills, TF-IDF
+                                            keywords
+    ml.ats_scorer.ATSScorer            -> weighted compatibility score
+                                            (skills, similarity, experience,
+                                            education, projects, certifications)
 
-None of the rendering code below needs to change once those are wired
-in — only the two `_mock_*` functions get swapped out.
+Parser/scorer instances are expensive to build (skills taxonomy load +
+regex compilation, NLTK/spaCy setup), so they're created once via
+st.cache_resource rather than per-file / per-rerun.
+
+DEPENDENCIES NEEDED FOR THIS TO RUN
+------------------------------------------------------------------------
+scikit-learn (TF-IDF + cosine similarity), and optionally pdfplumber
+or PyPDF2 (PDF parsing), python-docx (DOCX parsing), nltk + its
+punkt/stopwords/wordnet data, and a spaCy English model — all of these
+degrade gracefully to simpler fallbacks per their own module docstrings
+if missing, EXCEPT scikit-learn, which is a hard dependency of
+skill_extractor.py and ats_scorer.py.
+
+CANDIDATE NAME NOTE
+------------------------------------------------------------------------
+Candidate name is still derived from the filename (this was already
+real, not mocked) rather than from resume content — resume text alone
+doesn't reliably contain a labeled "name" field, and spaCy's PERSON
+entity extraction (available via text_processor) can misfire on other
+proper nouns. Filename-based naming stays as the simplest reliable
+signal; swap in entity-based detection later if this needs to improve.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import re
-
-import random
-import time
 
 import streamlit as st
 
@@ -46,6 +64,35 @@ from ui.components import (
     render_divider,
 )
 
+from ml.resume_parser import ResumeParser
+from ml.text_processor import TextProcessor
+from ml.skill_extractor import SkillExtractor
+from ml.ats_scorer import ATSScorer
+
+
+# ======================================================================
+# CACHED PIPELINE COMPONENTS (built once, reused across reruns)
+# ======================================================================
+
+@st.cache_resource
+def _get_resume_parser() -> ResumeParser:
+    return ResumeParser()
+
+
+@st.cache_resource
+def _get_text_processor() -> TextProcessor:
+    return TextProcessor()
+
+
+@st.cache_resource
+def _get_skill_extractor() -> SkillExtractor:
+    return SkillExtractor()
+
+
+@st.cache_resource
+def _get_ats_scorer() -> ATSScorer:
+    return ATSScorer()
+
 
 # ======================================================================
 # SESSION STATE HELPERS
@@ -60,20 +107,6 @@ def _init_state() -> None:
         st.session_state.jd_fields = None  # dict once "analyzed"
 
 
-# ======================================================================
-# MOCK PROCESSING  (placeholder only — see module docstring)
-# ======================================================================
-
-_MOCK_NAMES = [
-    "Ananya Sharma", "Rahul Verma", "Priya Nair", "Karan Mehta", "Sara Iqbal",
-    "Devika Rao", "Aditya Kulkarni", "Meera Joshi", "Vikram Singh", "Neha Gupta",
-]
-
-_MOCK_SKILL_POOL = [
-    "Python", "SQL", "TensorFlow", "PyTorch", "AWS", "Docker",
-    "NLP", "Pandas", "Power BI", "Java", "React", "MLOps",
-]
-
 def _extract_name_from_filename(filename: str) -> str:
     """
     Generate a readable candidate name from the uploaded filename.
@@ -82,57 +115,285 @@ def _extract_name_from_filename(filename: str) -> str:
     Shivam_Kumar_Resume2.pdf -> Shivam Kumar
     Rahul-Verma-CV.docx -> Rahul Verma
     """
-
     name = Path(filename).stem
 
-    # Remove common resume-related words
     name = re.sub(
         r"(resume|cv|final|latest|updated|version|v\d+|\d+)",
         "",
         name,
         flags=re.IGNORECASE,
     )
-
-    # Replace separators
-    name = name.replace("_", " ")
-    name = name.replace("-", " ")
-
-    # Remove extra spaces
+    name = name.replace("_", " ").replace("-", " ")
     name = " ".join(name.split())
 
     if not name:
         return "Unknown Candidate"
-
     return name.title()
 
 
-def _mock_process_resume(filename: str) -> dict:
-    """Temporary mock processing until ML pipeline is integrated."""
+_BULLET_PREFIX_RE = re.compile(r"^[\-•*‣▪◦●]\s*")
 
-    rng = random.Random(filename)
+
+def _parse_entries_with_bullets(section_text: str) -> list[tuple[str, str]]:
+    """
+    Group a resume section's lines into (title, description) entries.
+
+    detect_sections() only gives us raw lines — it doesn't know that a
+    bullet line like '- Implemented data structures...' is a DETAIL of
+    the project title above it, not a separate project. This groups
+    bullet-prefixed lines into the description of the most recent
+    non-bullet line instead of treating every line as its own entry.
+    """
+    entries: list[list] = []  # list of [title, [desc_lines]]
+    for raw_line in section_text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if _BULLET_PREFIX_RE.match(line) and entries:
+            desc_line = _BULLET_PREFIX_RE.sub("", line).strip()
+            entries[-1][1].append(desc_line)
+        else:
+            entries.append([_BULLET_PREFIX_RE.sub("", line).strip(), []])
+    return [(title, " ".join(desc_lines)) for title, desc_lines in entries]
+
+
+def _generate_strengths(
+    skill_count: int,
+    certifications: list[str],
+    projects: list[tuple[str, str]],
+    experience_match: float,
+    education_match: float,
+    scored_against_jd: bool,
+) -> list[str]:
+    """
+    Derive strengths from real extracted signals — no random pool. Every
+    line here traces back to something actually detected on the resume
+    (or, for the JD-relative lines, a real component score).
+    """
+    strengths: list[str] = []
+
+    if skill_count >= 5:
+        strengths.append(f"Strong technical skill set — {skill_count} relevant skills identified")
+    elif skill_count >= 1:
+        strengths.append(f"{skill_count} relevant skill{'s' if skill_count != 1 else ''} identified on the resume")
+
+    if certifications:
+        strengths.append(f"Holds {len(certifications)} certification{'s' if len(certifications) != 1 else ''}")
+
+    if len(projects) >= 2:
+        strengths.append(f"Hands-on experience shown across {len(projects)} projects")
+    elif len(projects) == 1:
+        strengths.append("At least one project demonstrating applied experience")
+
+    if scored_against_jd and experience_match >= 60:
+        strengths.append("Experience level aligns well with the job description")
+    if scored_against_jd and education_match >= 60:
+        strengths.append("Education background meets the role's stated requirement")
+
+    if not strengths:
+        strengths.append("No standout strengths could be determined from the extracted resume data")
+
+    return strengths[:4]
+
+
+def _generate_improvements(
+    missing_skills: list[str],
+    certifications: list[str],
+    projects: list[tuple[str, str]],
+    experience_match: float,
+    education_match: float,
+    scored_against_jd: bool,
+) -> list[str]:
+    """Derive improvement areas from real gaps — no random pool."""
+    improvements: list[str] = []
+
+    if scored_against_jd and missing_skills:
+        shown = ", ".join(missing_skills[:5])
+        improvements.append(f"Missing skills required by the job description: {shown}")
+    if not certifications:
+        improvements.append("No certifications detected on the resume")
+    if not projects:
+        improvements.append("No project section detected on the resume")
+    if scored_against_jd and experience_match < 40:
+        improvements.append("Experience level appears below what the job description expects")
+    if scored_against_jd and education_match < 40:
+        improvements.append("Education background appears below what the job description expects")
+
+    if not improvements:
+        improvements.append("No notable gaps identified from the extracted resume data")
+
+    return improvements[:4]
+
+
+def _status_from_score(score: float) -> str:
+    """Same thresholds used across the app's status badges."""
+    if score >= 80:
+        return "shortlisted"
+    if score >= 50:
+        return "in review"
+    return "rejected"
+
+
+# ======================================================================
+# REAL RESUME PROCESSING (replaces _mock_process_resume)
+# ======================================================================
+
+def _process_resume(uploaded_file) -> dict:
+    """
+    Run the real pipeline on one uploaded file:
+      resume_parser -> text_processor -> skill_extractor (via ats_scorer)
+
+    Returns a dict consumed by the results table AND by the Candidate
+    Details page. Never raises — parsing/scoring failures are captured
+    in 'status' / 'errors' instead of crashing the whole batch.
+    """
+    parser = _get_resume_parser()
+    text_processor = _get_text_processor()
+    scorer = _get_ats_scorer()
+
+    filename = uploaded_file.name
+    candidate_name = _extract_name_from_filename(filename)
+    jd_text = st.session_state.job_description_text or ""
+
+    parsed = parser.parse_bytes(uploaded_file.getvalue(), filename)
+
+    if not parsed.success:
+        return {
+            "filename": filename,
+            "candidate_name": candidate_name,
+            "status": "Failed",
+            "score": 0.0,
+            "matched_skills": [],
+            "missing_skills": [],
+            "detected_skills": [],
+            "scored_against_jd": False,
+            "skills_match": 0.0,
+            "experience_match": 0.0,
+            "education_match": 0.0,
+            "education": None,
+            "certifications": [],
+            "projects": [],
+            "strengths": [],
+            "improvements": [],
+            "errors": parsed.errors,
+        }
+
+    processed = text_processor.process(parsed.raw_text)
+    score_result = scorer.calculate_ats_score(parsed.raw_text, jd_text)
+
+    skills_component = score_result.components.get("skills")
+    experience_component = score_result.components.get("experience")
+    education_component = score_result.components.get("education")
+
+    matched_skills = [
+        s.title() for s in (skills_component.details.get("matched_skills", []) if skills_component else [])
+    ]
+    missing_skills = [
+        s.title() for s in (skills_component.details.get("missing_skills", []) if skills_component else [])
+    ]
+
+    # matched_skills is only meaningful when there's a JD to match against —
+    # with no JD, match_skills() intersects against an empty required set and
+    # always returns []. Separately extract the resume's OWN skills (no JD
+    # needed) so we still have something real to show in that case.
+    scored_against_jd = bool(jd_text.strip())
+    skill_extractor = _get_skill_extractor()
+    detected_skills = [
+        s.title() for s in skill_extractor.extract_skills(parsed.raw_text).skill_names
+    ]
+
+    education_text = processed.sections.get("education", "").strip() or None
+    certifications = [
+        line.strip()
+        for line in processed.sections.get("certifications", "").split("\n")
+        if line.strip()
+    ]
+    # Bullet-aware grouping — a '- detail line' under a project title is
+    # that project's description, not a separate project entry.
+    projects = _parse_entries_with_bullets(processed.sections.get("projects", ""))
+
+    strengths = _generate_strengths(
+        skill_count=len(detected_skills),
+        certifications=certifications,
+        projects=projects,
+        experience_match=round(experience_component.raw_score, 1) if experience_component else 0.0,
+        education_match=round(education_component.raw_score, 1) if education_component else 0.0,
+        scored_against_jd=scored_against_jd,
+    )
+    improvements = _generate_improvements(
+        missing_skills=missing_skills,
+        certifications=certifications,
+        projects=projects,
+        experience_match=round(experience_component.raw_score, 1) if experience_component else 0.0,
+        education_match=round(education_component.raw_score, 1) if education_component else 0.0,
+        scored_against_jd=scored_against_jd,
+    )
 
     return {
         "filename": filename,
-        "candidate_name": _extract_name_from_filename(filename),
+        "candidate_name": candidate_name,
         "status": "Completed",
-        "score": round(rng.uniform(35, 96), 1),
-        "matched_skills": rng.sample(_MOCK_SKILL_POOL, k=rng.randint(3, 6)),
+        "score": score_result.total_score,
+        "matched_skills": matched_skills,
+        "missing_skills": missing_skills,
+        "detected_skills": detected_skills,
+        "scored_against_jd": scored_against_jd,
+        "skills_match": round(skills_component.raw_score, 1) if skills_component else 0.0,
+        "experience_match": round(experience_component.raw_score, 1) if experience_component else 0.0,
+        "education_match": round(education_component.raw_score, 1) if education_component else 0.0,
+        "education": education_text,
+        "certifications": certifications,
+        "projects": projects,
+        "strengths": strengths,
+        "improvements": improvements,
+        "errors": parsed.warnings,  # non-fatal — parsing succeeded despite these
     }
 
 
-def _mock_extract_jd_fields(jd_text: str) -> dict:
-    """Fake keyword / requirement extraction from a pasted job description."""
-    rng = random.Random(len(jd_text))
+# ======================================================================
+# REAL JOB DESCRIPTION EXTRACTION (replaces _mock_extract_jd_fields)
+# ======================================================================
+
+_JD_EXPERIENCE_PATTERN = re.compile(
+    r"\d{1,2}\+?\s*(?:years?|yrs?)\s*(?:of)?\s*experience", re.IGNORECASE
+)
+
+_JD_EDUCATION_KEYWORDS = [
+    "phd", "doctorate", "master", "m.tech", "mtech", "msc", "mba",
+    "bachelor", "b.tech", "btech", "bsc", "b.e.", "diploma",
+]
+
+
+def _extract_jd_fields(jd_text: str) -> dict:
+    """
+    Real extraction — no random sampling:
+      - required_skills / keywords -> ml.skill_extractor (taxonomy match + TF-IDF)
+      - experience  -> first explicit '<n> years of experience' phrase found
+      - education   -> first sentence mentioning a recognized degree keyword
+
+    Falls back to 'Not specified' (rather than a random guess) when
+    nothing is found — an honest empty state beats a fabricated one.
+    """
+    extractor = _get_skill_extractor()
+    text_processor = _get_text_processor()
+
+    skills_result = extractor.extract_skills(jd_text)
+
+    experience_match = _JD_EXPERIENCE_PATTERN.search(jd_text)
+    experience = experience_match.group(0) if experience_match else "Not specified"
+
+    education = "Not specified"
+    for sentence in text_processor.tokenize_sentences(jd_text):
+        lowered = sentence.lower()
+        if any(keyword in lowered for keyword in _JD_EDUCATION_KEYWORDS):
+            education = sentence.strip()
+            break
+
     return {
-        "required_skills": rng.sample(_MOCK_SKILL_POOL, k=5),
-        "keywords": rng.sample(
-            ["scalable", "cross-functional", "data-driven", "agile", "ownership", "stakeholder"],
-            k=4,
-        ),
-        "experience": f"{rng.choice([2, 3, 4, 5])}+ years",
-        "education": rng.choice(
-            ["Bachelor's in Computer Science or related field", "Master's preferred, Bachelor's required"]
-        ),
+        "required_skills": [s.title() for s in skills_result.skill_names],
+        "keywords": skills_result.keywords[:6],
+        "experience": experience,
+        "education": education,
     }
 
 
@@ -189,12 +450,20 @@ def render() -> None:
                 i / total,
                 text=f"Parsing & scoring '{f.name}' ({i}/{total})…",
             )
-            time.sleep(0.15)  # simulated processing delay for UX feedback
-            processed.append(_mock_process_resume(f.name))
+            processed.append(_process_resume(f))
 
         progress_bar.empty()
         st.session_state.uploaded_resumes = processed
-        render_success(f"Successfully screened {total} resume(s).")
+
+        failed = [r for r in processed if r["status"] == "Failed"]
+        succeeded = total - len(failed)
+        if failed:
+            render_error(
+                f"{len(failed)} of {total} resume(s) could not be parsed "
+                f"({', '.join(r['filename'] for r in failed)}). See details below."
+            )
+        if succeeded:
+            render_success(f"Successfully screened {succeeded} resume(s).")
 
     render_divider()
 
@@ -230,19 +499,30 @@ def render() -> None:
                 unsafe_allow_html=True,
             )
         with row[2]:
-            render_status_badge("shortlisted" if r["score"] >= 80 else "in review" if r["score"] >= 50 else "rejected")
+            if r["status"] == "Failed":
+                render_status_badge("rejected")
+            else:
+                render_status_badge(_status_from_score(r["score"]))
         with row[3]:
             render_score_badge(r["score"])
         with row[4]:
-            if st.button("View →", key=f"view_{r['filename']}", use_container_width=True):
-                st.session_state.selected_candidate = r["candidate_name"]
-                st.session_state.active_page = "candidate_details"
-                st.rerun()
+            if r["status"] != "Failed":
+                if st.button("View →", key=f"view_{r['filename']}", use_container_width=True):
+                    st.session_state.selected_candidate = r["candidate_name"]
+                    st.session_state.active_page = "candidate_details"
+                    st.rerun()
+
+        if r["status"] == "Failed" and r.get("errors"):
+            st.markdown(
+                f"<div style='font-size:0.78rem; color:{COLORS['danger']}; margin:-0.4rem 0 0.6rem 0;'>"
+                f"⚠ {'; '.join(r['errors'])}</div>",
+                unsafe_allow_html=True,
+            )
 
     render_divider()
     st.caption(
-        "Scores shown are from a mock pipeline for UI development. "
-        "Real parsing/scoring will be powered by the ml/ modules once integrated."
+        "Scores and skill matches are computed by the real ml/ pipeline "
+        "(resume_parser → text_processor → skill_extractor → ats_scorer)."
     )
 
 
@@ -286,8 +566,7 @@ def render_job_description() -> None:
     if analyze_clicked:
         st.session_state.job_description_text = jd_text
         with st.spinner("Extracting requirements…"):
-            time.sleep(0.4)  # simulated processing delay for UX feedback
-            st.session_state.jd_fields = _mock_extract_jd_fields(jd_text)
+            st.session_state.jd_fields = _extract_jd_fields(jd_text)
         render_success("Job description analyzed.")
     elif jd_text != st.session_state.job_description_text:
         # Keep typed text in sync even if user hasn't clicked Analyze yet
@@ -311,13 +590,19 @@ def render_job_description() -> None:
 
     with col1:
         st.markdown(f"<div class='section-subtitle' style='font-weight:700; margin-bottom:0.5rem;'>Required Skills</div>", unsafe_allow_html=True)
-        skills_html = "".join(f'<span class="skill-chip" style="margin:0.2rem;">{s}</span>' for s in fields["required_skills"])
-        st.markdown(f"<div>{skills_html}</div>", unsafe_allow_html=True)
+        if fields["required_skills"]:
+            skills_html = "".join(f'<span class="skill-chip" style="margin:0.2rem;">{s}</span>' for s in fields["required_skills"])
+            st.markdown(f"<div>{skills_html}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='color:{COLORS['text_muted']}; font-size:0.85rem;'>No recognized skills found in this job description.</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='margin-top:1.25rem;'></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='section-subtitle' style='font-weight:700; margin-bottom:0.5rem;'>Keywords</div>", unsafe_allow_html=True)
-        kw_html = "".join(f'<span class="badge badge-accent" style="margin:0.2rem;">{k}</span>' for k in fields["keywords"])
-        st.markdown(f"<div>{kw_html}</div>", unsafe_allow_html=True)
+        if fields["keywords"]:
+            kw_html = "".join(f'<span class="badge badge-accent" style="margin:0.2rem;">{k}</span>' for k in fields["keywords"])
+            st.markdown(f"<div>{kw_html}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='color:{COLORS['text_muted']}; font-size:0.85rem;'>No standout keywords detected.</div>", unsafe_allow_html=True)
 
     with col2:
         st.markdown(
@@ -336,6 +621,7 @@ def render_job_description() -> None:
 
     render_divider()
     st.caption(
-        "Requirements shown are from a mock extraction pipeline for UI development. "
-        "Real extraction will be powered by ml/skill_extractor.py once integrated."
+        "Requirements are extracted by ml/skill_extractor.py (taxonomy skill "
+        "matching + TF-IDF keywords) plus lightweight pattern matching for "
+        "experience/education phrasing."
     )
