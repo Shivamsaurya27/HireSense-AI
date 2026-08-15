@@ -36,17 +36,20 @@ skill_extractor.py and ats_scorer.py.
 
 CANDIDATE NAME NOTE
 ------------------------------------------------------------------------
-Candidate name is still derived from the filename (this was already
-real, not mocked) rather than from resume content — resume text alone
-doesn't reliably contain a labeled "name" field, and spaCy's PERSON
-entity extraction (available via text_processor) can misfire on other
-proper nouns. Filename-based naming stays as the simplest reliable
-signal; swap in entity-based detection later if this needs to improve.
+Candidate name is now extracted from the resume's actual content when
+possible — see `_extract_name_from_resume_text()` — using spaCy PERSON
+entities (if a spaCy model is installed) restricted to the resume's
+"header block" (the lines before the first detected section, where a
+name almost always lives), with a plain-text heuristic as a second
+attempt if spaCy isn't available or found nothing there. Filename-based
+naming (`_extract_name_from_filename()`) is kept only as the last-resort
+fallback when neither of those finds anything plausible.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import re
+from typing import Optional
 
 import streamlit as st
 
@@ -234,6 +237,73 @@ def _status_from_score(score: float) -> str:
     return "rejected"
 
 
+_NAME_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){1,3}$")
+
+
+def _looks_like_a_name(line: str) -> bool:
+    """
+    Heuristic check for 'is this line plausibly a person's name' — used
+    only as a fallback when spaCy isn't available. Deliberately narrow:
+    2-4 words, letters only (plus . ' -), no digits, no email/URL. This
+    will still occasionally misfire on a job-title line (e.g. 'Data
+    Analyst') sitting right under the name — that's a known limitation
+    of a regex heuristic without real NER.
+    """
+    line = line.strip()
+    if "@" in line or "http" in line.lower() or "www." in line.lower():
+        return False
+    if any(ch.isdigit() for ch in line):
+        return False
+    return bool(_NAME_LINE_RE.match(line))
+
+
+def _extract_name_from_resume_text(raw_text: str, entities: dict) -> Optional[str]:
+    """
+    Try to find the candidate's actual name from the resume content
+    itself, rather than the filename:
+
+      1. Build the resume's "header block" — the lines before the first
+         detected section header (SUMMARY/EXPERIENCE/EDUCATION/etc.),
+         which is where a name + contact info normally lives.
+      2. Prefer a spaCy PERSON entity that appears inside that header
+         block (most reliable — real NER, not a regex guess).
+      3. Otherwise, fall back to checking whether the very first
+         header-block line looks like a plain name.
+
+    Returns None (letting the caller fall back to the filename) if
+    nothing plausible is found — e.g. spaCy isn't installed AND the
+    first line doesn't look name-like.
+    """
+    if not raw_text:
+        return None
+
+    header_lines: list[str] = []
+    for line in raw_text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if TextProcessor._match_section_header(stripped):
+            break
+        header_lines.append(stripped)
+        if len(header_lines) >= 6:  # header block is always short
+            break
+
+    if not header_lines:
+        return None
+
+    header_block_text = "\n".join(header_lines)
+    persons = (entities or {}).get("PERSON", [])
+    for person in persons:
+        if person in header_block_text:
+            return person.title() if person.isupper() else person
+
+    if _looks_like_a_name(header_lines[0]):
+        candidate = header_lines[0]
+        return candidate.title() if candidate.isupper() else candidate
+
+    return None
+
+
 # ======================================================================
 # REAL RESUME PROCESSING (replaces _mock_process_resume)
 # ======================================================================
@@ -280,6 +350,12 @@ def _process_resume(uploaded_file) -> dict:
 
     processed = text_processor.process(parsed.raw_text)
     score_result = scorer.calculate_ats_score(parsed.raw_text, jd_text)
+
+    # Prefer a name extracted from the resume content; fall back to the
+    # filename-based guess only if nothing plausible was found in the text.
+    content_name = _extract_name_from_resume_text(parsed.raw_text, processed.entities)
+    if content_name:
+        candidate_name = content_name
 
     skills_component = score_result.components.get("skills")
     experience_component = score_result.components.get("experience")
